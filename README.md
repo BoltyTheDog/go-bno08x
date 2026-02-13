@@ -12,7 +12,7 @@ A standalone Go library for the BNO08x IMU (9-DOF) sensor, focusing on high reli
 ## Installation
 
 ```bash
-go get github.com/GammaDron/go-bno08x
+go get github.com/BoltyTheDog/go-bno08x
 ```
 
 ## Architecture
@@ -31,7 +31,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/GammaDron/go-bno08x"
+	"github.com/BoltyTheDog/go-bno08x"
 )
 
 func main() {
