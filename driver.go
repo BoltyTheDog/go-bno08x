@@ -13,6 +13,7 @@ type BNO08X struct {
 	seqNumbers [6]uint8
 	readings   map[uint8]interface{}
 	accuracies map[uint8]int
+	Debug      bool
 }
 
 func NewBNO08X(transport Transport) *BNO08X {
@@ -63,6 +64,10 @@ func (b *BNO08X) Process(ctx context.Context) error {
 		return err
 	}
 
+	if b.Debug {
+		fmt.Printf("BNO08X: READ Header [%02X %02X %02X %02X] Len: %d Chan: %d\n", headerBuf[0], headerBuf[1], headerBuf[2], headerBuf[3], header.Length, header.Channel)
+	}
+
 	if header.Length <= 4 {
 		return nil // No data
 	}
@@ -73,6 +78,10 @@ func (b *BNO08X) Process(ctx context.Context) error {
 	_, err = b.transport.Receive(ctx, cargo)
 	if err != nil {
 		return err
+	}
+
+	if b.Debug {
+		fmt.Printf("BNO08X: READ Cargo (%d bytes)\n", cargoLen)
 	}
 
 	b.handlePacket(header, cargo)
@@ -93,6 +102,9 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 		for offset < len(data) {
 			reportID := data[offset]
 			if reportID == ReportBaseTimestamp || reportID == ReportTimestampRebase {
+				if b.Debug {
+					fmt.Printf("BNO08X: Skipping timestamp base 0x%02X\n", reportID)
+				}
 				offset += 5 // Skip timestamp base
 				continue
 			}
@@ -101,7 +113,14 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 			// For minimal implementation, we'll focus on the target reports
 			length := b.getReportLength(reportID)
 			if length == 0 || offset+length > len(data) {
+				if b.Debug {
+					fmt.Printf("BNO08X: Unknown or incomplete report ID 0x%02X at offset %d (len %d)\n", reportID, offset, len(data))
+				}
 				break
+			}
+
+			if b.Debug {
+				fmt.Printf("BNO08X: Parsing report 0x%02X\n", reportID)
 			}
 
 			res, accuracy, err := ParseSensorReport(reportID, data[offset:offset+length])
