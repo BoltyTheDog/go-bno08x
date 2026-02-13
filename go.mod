@@ -1,4 +1,4 @@
-module github.com/GammaDron/go-bno08x
+module github.com/BoltyTheDog/go-bno08x
 
 go 1.24.3
 
