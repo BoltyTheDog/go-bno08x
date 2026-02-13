@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type BNO08X struct {
@@ -49,7 +50,7 @@ func (b *BNO08X) EnableFeature(feature uint8, intervalMicroseconds uint32) error
 }
 
 func (b *BNO08X) Process(ctx context.Context) error {
-	// 1. Read header (4 bytes)
+	// 1. Read header (4 bytes) to get packet length
 	headerBuf := make([]byte, 4)
 	n, err := b.transport.Receive(ctx, headerBuf)
 	if err != nil {
@@ -64,28 +65,56 @@ func (b *BNO08X) Process(ctx context.Context) error {
 		return err
 	}
 
-	if b.Debug {
-		fmt.Printf("BNO08X: READ Header [%02X %02X %02X %02X] Len: %d Chan: %d\n", headerBuf[0], headerBuf[1], headerBuf[2], headerBuf[3], header.Length, header.Channel)
-	}
-
+	// If no data, nothing to do
 	if header.Length <= 4 {
-		return nil // No data
+		return nil
 	}
 
-	// 2. Read remaining cargo
-	cargoLen := int(header.Length) - 4
-	cargo := make([]byte, cargoLen)
-	_, err = b.transport.Receive(ctx, cargo)
+	// 2. Read FULL packet from the beginning
+	// On BNO08x I2C, starting a new read transaction restarts the packet from the beginning.
+	// We read the full length we just discovered.
+	fullPacket := make([]byte, header.Length)
+	_, err = b.transport.Receive(ctx, fullPacket)
 	if err != nil {
 		return err
 	}
 
+	// Re-parse the header from the full packet to be safe
+	actualHeader, _ := ParseHeader(fullPacket)
 	if b.Debug {
-		fmt.Printf("BNO08X: READ Cargo (%d bytes)\n", cargoLen)
+		fmt.Printf("BNO08X: Packet Chan:%d Seq:%d Len:%d\n", actualHeader.Channel, actualHeader.SequenceNumber, actualHeader.Length)
 	}
 
-	b.handlePacket(header, cargo)
+	b.handlePacket(actualHeader, fullPacket[4:])
 	return nil
+}
+
+func (b *BNO08X) CheckID(ctx context.Context) error {
+	b.mu.Lock()
+	delete(b.readings, ReportProductIdResponse)
+	b.mu.Unlock()
+
+	// Send Product ID Request
+	data := []byte{ReportProductIdRequest, 0x00}
+	if err := b.sendPacket(ChanControl, data); err != nil {
+		return err
+	}
+
+	// Loop for a while to find the response
+	for i := 0; i < 100; i++ {
+		if err := b.Process(ctx); err != nil {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		b.mu.Lock()
+		_, ok := b.readings[ReportProductIdResponse]
+		b.mu.Unlock()
+		if ok {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for Product ID response")
 }
 
 func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
@@ -114,7 +143,7 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 			length := b.getReportLength(reportID)
 			if length == 0 || offset+length > len(data) {
 				if b.Debug {
-					fmt.Printf("BNO08X: Unknown or incomplete report ID 0x%02X at offset %d (len %d)\n", reportID, offset, len(data))
+					fmt.Printf("BNO08X: Unknown (0x%02X) or incomplete report at offset %d\n", reportID, offset)
 				}
 				break
 			}
@@ -129,6 +158,13 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 				b.accuracies[reportID] = accuracy
 			}
 			offset += length
+		}
+	} else if header.Channel == ChanControl {
+		if len(data) > 0 {
+			reportID := data[0]
+			if reportID == ReportProductIdResponse {
+				b.readings[ReportProductIdResponse] = true // Just mark as seen
+			}
 		}
 	}
 }
