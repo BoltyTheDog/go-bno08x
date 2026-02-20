@@ -156,6 +156,12 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 			if err == nil && res != nil {
 				b.readings[reportID] = res
 				b.accuracies[reportID] = accuracy
+			} else if reportID == SensorReportStabilityClassifier {
+				// Handle simple byte reports not in ParseSensorReport
+				if len(data[offset:offset+length]) >= 5 {
+					b.readings[reportID] = data[offset+4]
+					b.accuracies[reportID] = int(data[offset+2] & 0x03)
+				}
 			}
 			offset += length
 		}
@@ -170,13 +176,14 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 }
 
 func (b *BNO08X) getReportLength(reportID uint8) int {
-	switch reportID {
 	case SensorReportAccelerometer, SensorReportLinearAcceleration, SensorReportGravity, SensorReportGyroscope, SensorReportMagnetometer:
 		return 10
 	case SensorReportRotationVector, SensorReportGameRotationVector:
 		return 14
 	case SensorReportGeomagneticRotationVector:
 		return 14
+	case SensorReportStabilityClassifier:
+		return 6
 	}
 	return 0
 }
@@ -227,4 +234,24 @@ func (b *BNO08X) GetMagnetometer() ([3]float64, bool) {
 	defer b.mu.Unlock()
 	v, ok := b.readings[SensorReportMagnetometer].([3]float64)
 	return v, ok
+}
+
+func (b *BNO08X) GetAccuracy(reportID uint8) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.accuracies[reportID]
+}
+
+func (b *BNO08X) GetStability() (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	val, ok := b.readings[SensorReportStabilityClassifier].(uint8)
+	if !ok {
+		return "", false
+	}
+	classifications := []string{"Unknown", "On Table", "Stationary", "Stable", "In motion"}
+	if int(val) < len(classifications) {
+		return classifications[val], true
+	}
+	return "Unknown", true
 }

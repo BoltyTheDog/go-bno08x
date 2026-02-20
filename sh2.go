@@ -14,47 +14,55 @@ type SensorData struct {
 	Accuracy      int
 }
 
-// Quaternion represents a 4D rotation vector
+// Quaternion represents a 4D rotation vector with accuracy estimate
 type Quaternion struct {
-	I, J, K, Real float64
+	I, J, K, Real    float64
+	AccuracyEstimate float64 // Accuracy estimate in radians (for Rotation Vector)
 }
 
 // ParseSensorReport parses a single sensor report from a buffer
 func ParseSensorReport(reportID uint8, data []byte) (interface{}, int, error) {
+	status := int(data[2] & 0x03)
 	switch reportID {
 	case SensorReportRotationVector, SensorReportGameRotationVector, SensorReportGeomagneticRotationVector:
-		q, accuracy := parseQuaternion(data, getScalar(reportID))
-		return q, accuracy, nil
+		q := parseQuaternion(data, getScalar(reportID))
+		return q, status, nil
 	case SensorReportAccelerometer, SensorReportLinearAcceleration, SensorReportGravity:
-		v, accuracy := parseVector3(data, getScalar(reportID))
-		return v, accuracy, nil
+		v := parseVector3(data, getScalar(reportID))
+		return v, status, nil
 	case SensorReportGyroscope:
-		v, accuracy := parseVector3(data, getScalar(reportID))
-		return v, accuracy, nil
+		v := parseVector3(data, getScalar(reportID))
+		return v, status, nil
 	case SensorReportMagnetometer:
-		v, accuracy := parseVector3(data, getScalar(reportID))
-		return v, accuracy, nil
+		v := parseVector3(data, getScalar(reportID))
+		return v, status, nil
 	}
-	return nil, 0, nil
+	return nil, status, nil
 }
 
-func parseQuaternion(data []byte, scalar float64) (Quaternion, int) {
-	// Offset 4: i, 6: j, 8: k, 10: real, 12: accuracy
+func parseQuaternion(data []byte, scalar float64) Quaternion {
+	// Offset 4: i, 6: j, 8: k, 10: real, 12: accuracy estimate
 	i := float64(int16(binary.LittleEndian.Uint16(data[4:6]))) * scalar
 	j := float64(int16(binary.LittleEndian.Uint16(data[6:8]))) * scalar
 	k := float64(int16(binary.LittleEndian.Uint16(data[8:10]))) * scalar
 	real := float64(int16(binary.LittleEndian.Uint16(data[10:12]))) * scalar
-	accuracy := int(data[12] & 0x03)
-	return Quaternion{I: i, J: j, K: k, Real: real}, accuracy
+
+	// Accuracy estimate is only present in some rotation reports (e.g. 0x05)
+	// and uses a fixed Q-point of 12 for radians
+	accEst := 0.0
+	if len(data) >= 14 {
+		accEst = float64(int16(binary.LittleEndian.Uint16(data[12:14]))) * math.Pow(2, -12)
+	}
+
+	return Quaternion{I: i, J: j, K: k, Real: real, AccuracyEstimate: accEst}
 }
 
-func parseVector3(data []byte, scalar float64) ([3]float64, int) {
+func parseVector3(data []byte, scalar float64) [3]float64 {
 	// Offset 4: x, 6: y, 8: z
 	x := float64(int16(binary.LittleEndian.Uint16(data[4:6]))) * scalar
 	y := float64(int16(binary.LittleEndian.Uint16(data[6:8]))) * scalar
 	z := float64(int16(binary.LittleEndian.Uint16(data[8:10]))) * scalar
-	accuracy := int(data[10] & 0x03)
-	return [3]float64{x, y, z}, accuracy
+	return [3]float64{x, y, z}
 }
 
 func getScalar(reportID uint8) float64 {
