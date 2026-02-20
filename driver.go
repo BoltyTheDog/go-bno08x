@@ -207,3 +207,24 @@ func (b *BNO08X) GetQuaternion() (Quaternion, bool) {
 	q, ok := b.readings[SensorReportRotationVector].(Quaternion)
 	return q, ok
 }
+
+func (b *BNO08X) GetAccelerometer() ([3]float64, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	v, ok := b.readings[SensorReportAccelerometer].([3]float64)
+	return v, ok
+}
+
+func (b *BNO08X) GetGyroscope() ([3]float64, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	v, ok := b.readings[SensorReportGyroscope].([3]float64)
+	return v, ok
+}
+
+func (b *BNO08X) GetMagnetometer() ([3]float64, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	v, ok := b.readings[SensorReportMagnetometer].([3]float64)
+	return v, ok
+}
