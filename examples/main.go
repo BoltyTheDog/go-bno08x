@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/GammaDron/go-bno08x"
+	"github.com/BoltyTheDog/go-bno08x"
 )
 
 func main() {
