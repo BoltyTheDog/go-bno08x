@@ -176,6 +176,7 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 }
 
 func (b *BNO08X) getReportLength(reportID uint8) int {
+	switch reportID {
 	case SensorReportAccelerometer, SensorReportLinearAcceleration, SensorReportGravity, SensorReportGyroscope, SensorReportMagnetometer:
 		return 10
 	case SensorReportRotationVector, SensorReportGameRotationVector:
