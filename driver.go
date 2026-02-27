@@ -91,31 +91,37 @@ func (b *BNO08X) Process(ctx context.Context) error {
 }
 
 func (b *BNO08X) CheckID(ctx context.Context) error {
-	b.mu.Lock()
-	delete(b.readings, ReportProductIdResponse)
-	b.mu.Unlock()
-
-	// Send Product ID Request
-	data := []byte{ReportProductIdRequest, 0x00}
-	if err := b.sendPacket(ChanControl, data); err != nil {
-		return err
-	}
-
-	// Loop for a while to find the response
-	for i := 0; i < 200; i++ { // Increased retries
-		if err := b.Process(ctx); err != nil {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
+	// Try up to 3 times to get the Product ID
+	for attempt := 0; attempt < 3; attempt++ {
 		b.mu.Lock()
-		_, ok := b.readings[ReportProductIdResponse]
+		delete(b.readings, ReportProductIdResponse)
 		b.mu.Unlock()
-		if ok {
-			return nil
+
+		// Send Product ID Request
+		data := []byte{ReportProductIdRequest, 0x00}
+		if err := b.sendPacket(ChanControl, data); err != nil {
+			return err
 		}
-		time.Sleep(10 * time.Millisecond)
+
+		// Loop for a while to find the response
+		for i := 0; i < 100; i++ {
+			if err := b.Process(ctx); err != nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			b.mu.Lock()
+			_, ok := b.readings[ReportProductIdResponse]
+			b.mu.Unlock()
+			if ok {
+				return nil
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if b.Debug {
+			fmt.Printf("BNO08X: CheckID attempt %d failed, retrying...\n", attempt+1)
+		}
 	}
-	return fmt.Errorf("timeout waiting for Product ID response")
+	return fmt.Errorf("timeout waiting for Product ID response after 3 attempts")
 }
 
 func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
