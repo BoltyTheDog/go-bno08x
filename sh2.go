@@ -2,6 +2,7 @@ package bno08x
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 )
 
@@ -22,18 +23,21 @@ type Quaternion struct {
 
 // ParseSensorReport parses a single sensor report from a buffer
 func ParseSensorReport(reportID uint8, data []byte) (interface{}, int, error) {
+	if len(data) < 3 {
+		return nil, 0, fmt.Errorf("report too short: %d bytes", len(data))
+	}
 	status := int(data[2] & 0x03)
 	switch reportID {
 	case SensorReportRotationVector, SensorReportGameRotationVector, SensorReportGeomagneticRotationVector:
+		if len(data) < 14 {
+			return nil, status, fmt.Errorf("rotation report too short: %d bytes", len(data))
+		}
 		q := parseQuaternion(data, getScalar(reportID))
 		return q, status, nil
-	case SensorReportAccelerometer, SensorReportLinearAcceleration, SensorReportGravity:
-		v := parseVector3(data, getScalar(reportID))
-		return v, status, nil
-	case SensorReportGyroscope:
-		v := parseVector3(data, getScalar(reportID))
-		return v, status, nil
-	case SensorReportMagnetometer:
+	case SensorReportAccelerometer, SensorReportLinearAcceleration, SensorReportGravity, SensorReportGyroscope, SensorReportMagnetometer:
+		if len(data) < 10 {
+			return nil, status, fmt.Errorf("vector report too short: %d bytes", len(data))
+		}
 		v := parseVector3(data, getScalar(reportID))
 		return v, status, nil
 	}
@@ -59,6 +63,7 @@ func parseQuaternion(data []byte, scalar float64) Quaternion {
 
 func parseVector3(data []byte, scalar float64) [3]float64 {
 	// Offset 4: x, 6: y, 8: z
+	// Assumes len(data) >= 10
 	x := float64(int16(binary.LittleEndian.Uint16(data[4:6]))) * scalar
 	y := float64(int16(binary.LittleEndian.Uint16(data[6:8]))) * scalar
 	z := float64(int16(binary.LittleEndian.Uint16(data[8:10]))) * scalar

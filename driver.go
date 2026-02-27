@@ -82,7 +82,8 @@ func (b *BNO08X) Process(ctx context.Context) error {
 	// Re-parse the header from the full packet to be safe
 	actualHeader, _ := ParseHeader(fullPacket)
 	if b.Debug {
-		fmt.Printf("BNO08X: Packet Chan:%d Seq:%d Len:%d\n", actualHeader.Channel, actualHeader.SequenceNumber, actualHeader.Length)
+		fmt.Printf("BNO08X: Packet Chan:%d Seq:%d Len:%d | Data: %X\n",
+			actualHeader.Channel, actualHeader.SequenceNumber, actualHeader.Length, fullPacket[4:])
 	}
 
 	b.handlePacket(actualHeader, fullPacket[4:])
@@ -101,7 +102,7 @@ func (b *BNO08X) CheckID(ctx context.Context) error {
 	}
 
 	// Loop for a while to find the response
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ { // Increased retries
 		if err := b.Process(ctx); err != nil {
 			time.Sleep(10 * time.Millisecond)
 			continue
@@ -125,8 +126,6 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 
 	if header.Channel == ChanInputSensorReports || header.Channel == ChanGyroRotationVector {
 		// Sensor reports can be batched
-		// For now, let's assume single report for simplicity or iterate if length permits
-		// BNO08x reports often start with a timestamp base (0xFB or 0xFA)
 		offset := 0
 		for offset < len(data) {
 			reportID := data[offset]
@@ -138,12 +137,20 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 				continue
 			}
 
-			// Get report length (this is tricky as it varies)
-			// For minimal implementation, we'll focus on the target reports
+			// Get report length
 			length := b.getReportLength(reportID)
-			if length == 0 || offset+length > len(data) {
+			if length == 0 {
 				if b.Debug {
-					fmt.Printf("BNO08X: Unknown (0x%02X) or incomplete report at offset %d\n", reportID, offset)
+					fmt.Printf("BNO08X: Unknown report 0x%02X at offset %d, data: %X\n", reportID, offset, data)
+				}
+				// We don't know the length, so we must stop parsing this batch
+				break
+			}
+
+			if offset+length > len(data) {
+				if b.Debug {
+					fmt.Printf("BNO08X: Incomplete report 0x%02X (needs %d, has %d) at offset %d\n",
+						reportID, length, len(data)-offset, offset)
 				}
 				break
 			}
@@ -156,6 +163,8 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 			if err == nil && res != nil {
 				b.readings[reportID] = res
 				b.accuracies[reportID] = accuracy
+			} else if err != nil && b.Debug {
+				fmt.Printf("BNO08X: Parse error for report 0x%02X: %v\n", reportID, err)
 			} else if reportID == SensorReportStabilityClassifier {
 				// Handle simple byte reports not in ParseSensorReport
 				if len(data[offset:offset+length]) >= 5 {
