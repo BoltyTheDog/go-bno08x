@@ -128,6 +128,10 @@ func (b *BNO08X) handlePacket(header SHTPHeader, data []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if int(header.Channel) >= len(b.seqNumbers) {
+		// Ignore packets with invalid channel numbers (e.g. garbled I2C data during init)
+		return
+	}
 	b.seqNumbers[header.Channel] = header.SequenceNumber
 
 	if header.Channel == ChanInputSensorReports || header.Channel == ChanGyroRotationVector {
