@@ -9,6 +9,7 @@ import (
 )
 
 type I2CTransport struct {
+	bus i2c.BusCloser
 	dev *i2c.Dev
 }
 
@@ -23,6 +24,7 @@ func NewI2CTransport(busName string, address uint16) (*I2CTransport, error) {
 	}
 
 	return &I2CTransport{
+		bus: bus,
 		dev: &i2c.Dev{Bus: bus, Addr: address},
 	}, nil
 }
@@ -39,6 +41,5 @@ func (t *I2CTransport) Receive(ctx context.Context, data []byte) (int, error) {
 }
 
 func (t *I2CTransport) Close() error {
-	// i2c.Bus doesn't have a Close in some contexts, but let's assume it might
-	return nil
+	return t.bus.Close()
 }
